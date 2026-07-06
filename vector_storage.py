@@ -1,3 +1,4 @@
+import datetime
 import streamlit as st
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -27,7 +28,6 @@ def store_new_emails(email_list: list):
         return
         
     new_docs = []
-    print("email content",email_list[0])
     for email in email_list:
         doc = Document(
             page_content=email.get("text", ""),
@@ -63,7 +63,7 @@ def store_new_emails(email_list: list):
             
 #         # This will render an interactive, expandable JSON tree in your UI
 #         st.json(readable_database)
-emails = get_emails_lang()
+emails = get_emails_lang((datetime.datetime.now() - datetime.timedelta(days=31)).strftime('%Y/%m/%d'))
 # print("emails ", emails)
 store_new_emails(emails)
 total_docs = len(vector_store.store)

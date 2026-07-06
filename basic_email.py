@@ -116,14 +116,22 @@ def get_calendar(time_min: str = None, time_max: str = None, max_results: int = 
     return events
 
 
-def get_emails():
+def get_emails(look_back:str =None):
     """
-    A function that returns emails from last 2 weeks
+    A function that returns emails within a specified timeframe.
+    Args:
+        look_back: The period to gather the emails from, in datetime YYYY/MM/DD format. Defaults to 2 weeks prior if None.
 
     """
     service = get_service(email_calendar=True)
-    two_weeks_ago = (datetime.datetime.now() - datetime.timedelta(days=14)).strftime('%Y/%m/%d')
-    query = f"after:{two_weeks_ago}"
+    try:
+        if look_back:
+            time_period = datetime.datetime.strptime(look_back,'%Y/%m/%d')
+            query = f"after:{time_period}"
+    except ValueError as e:
+        print(f"error when coverting look back for emaisl so defaulting to 2 weeks ",e)
+        two_weeks_ago = (datetime.datetime.now() - datetime.timedelta(days=14)).strftime('%Y/%m/%d')
+        query = f"after:{two_weeks_ago}"
     results = service.users().messages().list(maxResults=100,q=query, userId='me').execute()
 
     # We can also pass maxResults to get any number of emails. Like this:
@@ -149,16 +157,27 @@ def get_emails():
             
     return "\n".join(summary)
 
-def get_emails_lang():
-    service = get_service(email_calendar=True)
-    two_weeks_ago = (datetime.datetime.now() - datetime.timedelta(days=14)).strftime('%Y/%m/%d')
-    query = f"after:{two_weeks_ago}"
-    results = service.users().messages().list(maxResults=100,q=query, userId='me').execute()
+def get_emails_lang(look_back:str = None):
+    """
+    A function that returns emails within a specified timeframe.
+    Args:
+        look_back: The period to gather the emails from, in datetime YYYY/MM/DD format. Defaults to 2 weeks prior if None.
 
+    """
+    service = get_service(email_calendar=True)
+    if look_back:
+        try:
+            dt = datetime.datetime.strptime(look_back, "%Y/%m/%d")
+        except ValueError:
+            dt = datetime.datetime.now() - datetime.timedelta(days=14)
+    else:
+        dt = datetime.datetime.now() - datetime.timedelta(days=14)
+
+    query = f"after:{dt.strftime('%Y/%m/%d')}"
+    results = service.users().messages().list(maxResults=100,q=query, userId='me').execute()
     # We can also pass maxResults to get any number of emails. Like this:
     # result = service.users().messages().list(maxResults=200, userId='me').execute()
     messages = results.get('messages')
-
     # messages is a list of dictionaries where each dictionary contains a message id.
 
     if not messages:
