@@ -1,13 +1,13 @@
+# python -m mlx_lm.server --model jedisct1/gemma-4-E2B-it-txt-mlx-4bit --port 8080
 import os
 import time
 import random
 import streamlit as st
 from langgraph.graph import START, END, StateGraph
-from ddgs import DDGS
-from ddgs.exceptions import DDGSException
 from openai import OpenAI
 from typing_extensions import TypedDict
 from basic_email import get_emails, get_calendar
+from vector_storage import vector_store
 
 # Configure Streamlit layout with two columns: main content and logs
 st.set_page_config(layout="wide")
@@ -48,9 +48,10 @@ main_content.title("Agentic AI Framework - LangGraph")
 # Setup API clients
 client = OpenAI(
     base_url="http://localhost:8080/v1",
-    api_key="mock-local-key"
+    api_key="mock-local-key",
+    # timeout=180.0,
+    # max_retries=2
 )
-ddgs = DDGS()
 
 # Define state structure
 class State(TypedDict):
@@ -65,11 +66,15 @@ class State(TypedDict):
 
 class EmailGathererAgent:
     def gather_emails(self, state: State, max_retries: int = 3):
-        week = state["email"]
-        util_st_log(f"Gathering emails for {week}...")
+        time_frame = state["email"]
+        util_st_log(f"Gathering emails for {time_frame}...")
 
-        email_results = get_emails()
-        return {"email_results": email_results, "calendar_results":[], "iteration": 0, "insights": "", "summary_feedback": None, "email": state["email"], "event": state["event"]}
+        searched_emails_docs = vector_store.similarity_search(
+            query = time_frame,
+            k = 10 # top 3 most contecually relevent chunks
+            )
+        email_context = "\n".join([doc.page_content for doc in searched_emails_docs])
+        return {"email_results": [email_context], "calendar_results":[], "iteration": 0, "insights": "", "summary_feedback": None, "email": state["email"], "event": state["event"]}
 
 class EventGathererAgent:
     def gather_events(self, state: State, max_retries: int = 3):
@@ -87,18 +92,19 @@ class EventGathererAgent:
 class AnalysisAgent:
     def analyze_data(self, state: State):
         util_st_log("AnalysisAgent started...")
-        raw_emails = str(state["email_results"])
-        truncated_emails = raw_emails[:4000] 
+        email_data = state ["email_results"]
+        # raw_emails = str(state["email_results"])
+        # truncated_emails = raw_emails[:4000] 
         
         # 2. Explicitly tell the model NOT to waste tokens on a thinking process
         prompt = (
             "You are an expert data analyst.\n"
-            "Summarize the following email and/or calendar data in clear, informative built points, highlighting in chronological order and most important/urgent emails and/or events. For each section have an emoji alongside heading.\n"
+            "Summarize the following higly relevant email and/or calendar data in clear, informative built points, highlighting in chronological order and most important/urgent emails and/or events. For each section have an emoji alongside heading.\n"
             "CRITICAL: Do not write a thinking process, intro notes, or internal monologue. "
             "Output ONLY the final summary paragraphs directly.\n\n"
             f"Data\n"
             f" - Calendar events:{str(state['calendar_results'])}"
-            f" - Emails:{truncated_emails}\n"
+            f" - Emails snippets:{email_data}\n"
         )
         if state.get("summary_feedback"):
             prompt += f"\n\nFeedback from reviewer to incorporate: {state['summary_feedback']}"
@@ -110,7 +116,7 @@ class AnalysisAgent:
                 model = "jedisct1/gemma-4-E2B-it-txt-mlx-4bit",
                 # STRICTLY use only 'user' role for Gemma
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=2000
+                max_tokens=4000
             )
 
             message = response.choices[0].message
@@ -134,6 +140,7 @@ class AnalysisAgent:
 
 class ReviewerAgent:
     def review_insights(self, state: State, max_iterations=2):
+        time.sleep(2)
         review_prompt = f"You are an expert reviewer.\n\nReview the following email and/or calendar event report for clarity and quality. If revision is needed, start your response with exactly 'Needs revision'.\n\nReport:\n{state['insights']}"
         
         try:
@@ -146,11 +153,18 @@ class ReviewerAgent:
             )
 
             # Safety fallback to prevent NoneType errors
-            raw_content = response.choices[0].message.content
-            summary_feedback = raw_content.strip() if raw_content else ""
+            message = response.choices[0].message
+            if hasattr(message, 'content') and message.content:
+                summary_feedback = message.content.strip()
+            elif hasattr(message, 'reasoning') and message.reasoning:
+                summary_feedback = message.reasoning.strip()
+            else:
+                summary_feedback = ""
         
         except Exception as e:
-            summary_feedback = f"Review agent API Error: {str(e)}"
+            error_msg = f"Review agent API Error ({type(e).__name__}): {str(e)}"
+            summary_feedback = error_msg
+            util_st_log(f"<span style='color:red'>{error_msg}</span>")
 
         # This will no longer crash because summary_feedback is guaranteed to be a string
         need_revision = "Needs revision" in summary_feedback and state["iteration"] < max_iterations
