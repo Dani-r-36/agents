@@ -88,7 +88,8 @@ class AnalysisAgent:
             prompt += f"\n\nFeedback from reviewer to incorporate: {state['review_feedback']}"
 
         response = client.chat.completions.create(
-            model="mlx-community/gemma-4-e4b-it-4bit",
+            # model="mlx-community/gemma-4-e4b-it-4bit",
+            model = "jedisct1/gemma-4-E2B-it-txt-mlx-4bit",
             messages=[{"role": "user", "content": f"You are an expert data analyst. {prompt}"}],
             max_tokens=1000
         )
@@ -105,7 +106,8 @@ class ReviewerAgent:
         review_prompt = f"Review the following airline report for clarity and quality. If revision is needed, start your response with exactly 'Needs revision'.\n\nReport:\n{state['insights']}"
         
         response = client.chat.completions.create(
-            model="mlx-community/gemma-4-e4b-it-4bit",
+            # model="mlx-community/gemma-4-e4b-it-4bit",
+            model = "jedisct1/gemma-4-E2B-it-txt-mlx-4bit",
             messages=[{"role": "system", "content": f"You are an expert reviewer.{review_prompt}"}] # FIXED: Passed the correct variable
         )
 

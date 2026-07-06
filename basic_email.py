@@ -112,7 +112,7 @@ def get_calendar(time_min: str = None, time_max: str = None, max_results: int = 
     if not events:
         print("No events found for this timeframe.")
         return "No events found for the requested timeframe."
-    print(events)
+    # print(events)
     return events
 
 
@@ -134,7 +134,7 @@ def get_emails():
 
     if not messages:
             return "You have no unread emails."
-        
+    return messages
     summary = []
     for msg in messages:
         m = service.users().messages().get(userId='me', id=msg['id']).execute()
@@ -144,16 +144,57 @@ def get_emails():
         headers = m['payload']['headers']
         subject = next((h['value'] for h in headers if h['name'] == 'Subject'), "(No Subject)")
         sender = next((h['value'] for h in headers if h['name'] == 'From'), "(Unknown Sender)")
-        summary.append(f"- From: {sender} | Subject: {subject} | Date: {readable_date}")
+        snippet = m.get('snippet', '')
+        summary.append(f"- From: {sender} | Subject: {subject} | Date: {readable_date} | Text: {snippet}")
             
     return "\n".join(summary)
+
+def get_emails_lang():
+    service = get_service(email_calendar=True)
+    two_weeks_ago = (datetime.datetime.now() - datetime.timedelta(days=14)).strftime('%Y/%m/%d')
+    query = f"after:{two_weeks_ago}"
+    results = service.users().messages().list(maxResults=100,q=query, userId='me').execute()
+
+    # We can also pass maxResults to get any number of emails. Like this:
+    # result = service.users().messages().list(maxResults=200, userId='me').execute()
+    messages = results.get('messages')
+
+    # messages is a list of dictionaries where each dictionary contains a message id.
+
+    if not messages:
+            return "You have no unread emails."
+    
+    summary = []
+    for msg in messages:
+        m = service.users().messages().get(userId='me', id=msg['id']).execute()
+        ms_timestamp = int(m['internalDate'])
+        date_obj = datetime.datetime.fromtimestamp(ms_timestamp / 1000.0)
+        readable_date = date_obj.strftime('%b %d, %Y %H:%M')
+        headers = m['payload']['headers']
+        subject = next((h['value'] for h in headers if h['name'] == 'Subject'), "(No Subject)")
+        sender = next((h['value'] for h in headers if h['name'] == 'From'), "(Unknown Sender)")
+        
+        # Grab a short preview of the email body to use as the actual document content
+        snippet = m.get('snippet', '')
+
+        # Append a dictionary with the exact keys your LangChain script is looking for
+        summary.append({
+            "sender": sender,
+            "subject": subject,
+            "date": readable_date,
+            "text": snippet # Maps to page_content in your Streamlit app
+        })
+            
+    # Return the list of dictionaries!
+    return summary
 
 # ---- Config ----
 SUMMARY_UPDATE_EVERY = 3  # update summary every N turns
 
 MAX_ITERATIONS = 3
 CURRENT_ITERATION = 0
-MODEL_NAME = "mlx-community/gemma-4-e4b-it-4bit"
+# MODEL_NAME = "mlx-community/gemma-4-e4b-it-4bit"
+MODEL_NAME = "jedisct1/gemma-4-E2B-it-txt-mlx-4bit"
 last_fetch_time = None
 model, tokenizer = load(MODEL_NAME)
 console = Console()

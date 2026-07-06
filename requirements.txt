@@ -1,0 +1,13 @@
+rich
+mlx_lm
+bs4
+google-auth
+google_auth_oauthlib
+google-api-python-client
+requests
+streamlit
+langgraph
+ddgs
+openai
+torch
+torchvision
