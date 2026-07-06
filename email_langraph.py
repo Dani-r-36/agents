@@ -73,7 +73,21 @@ class EmailGathererAgent:
             query = time_frame,
             k = 10 # top 3 most contecually relevent chunks
             )
-        email_context = "\n".join([doc.page_content for doc in searched_emails_docs])
+        formatted_emails = []
+        for doc in searched_emails_docs:
+            meta = doc.metadata
+            date = meta.get("date", "Unknown Date")
+            sender = meta.get("sender", "Unknown Sender")
+            subject = meta.get("subject", "No Subject")
+            
+            # Create a clean header for the LLM to read
+            chunk_str = f"📅 Date: {date} | 👤 From: {sender} | 📝 Subject: {subject}\nSnippet: {doc.page_content}\n---"
+            formatted_emails.append(chunk_str)
+
+        # Join the newly formatted strings together
+        email_context = "\n".join(formatted_emails)
+        print("email contents")
+        print(email_context)
         return {"email_results": [email_context], "calendar_results":[], "iteration": 0, "insights": "", "summary_feedback": None, "email": state["email"], "event": state["event"]}
 
 class EventGathererAgent:
@@ -99,7 +113,7 @@ class AnalysisAgent:
         # 2. Explicitly tell the model NOT to waste tokens on a thinking process
         prompt = (
             "You are an expert data analyst.\n"
-            "Summarize the following higly relevant email and/or calendar data in clear, informative built points, highlighting in chronological order and most important/urgent emails and/or events. For each section have an emoji alongside heading.\n"
+            "Summarize the following higly relevant email and/or calendar data in clear, informative built points, highlighting in chronological order and most important/urgent emails and/or events. For each section have an emoji alongside heading and for each event/email add corrsponding date.\n"
             "CRITICAL: Do not write a thinking process, intro notes, or internal monologue. "
             "Output ONLY the final summary paragraphs directly.\n\n"
             f"Data\n"
