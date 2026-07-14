@@ -1,81 +1,91 @@
 import chromadb
 from chromadb.utils import embedding_functions
+from datetime import datetime, timedelta
+from basic_email import get_emails_lang
 
 CHROMA_DATA_PATH = "chroma_data/"
 EMBED_MODEL = "all-MiniLM-L6-v2"
 COLLECTION_NAME = "demo_docs"
 
-client = chromadb.PersistentClient(path=CHROMA_DATA_PATH)
 
+def vector_search():
+    client = chromadb.PersistentClient(path=CHROMA_DATA_PATH)
+    embedding_func = embedding_functions.SentenceTransformerEmbeddingFunction(
+        model_name=EMBED_MODEL
+        )
 
-
-embedding_func = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name=EMBED_MODEL
+    collection = client.get_or_create_collection(
+        name=COLLECTION_NAME,
+        embedding_function=embedding_func,
+        metadata={"hnsw:space": "cosine"}, #"hnsw:space": "ip" for dot product but need different model
+        )
+    emails = get_emails_lang((datetime.now() - timedelta(days=14)).strftime('%Y/%m/%d'))
+    for email in emails:
+        # 1. Skip emails that have no text content to avoid embedding errors
+        email_text = email.get("text", "").strip()
+        if not email_text:
+            continue
+        # 2. Add to collection wrapping everything in a LIST []
+        date_format = "%b %d, %Y %H:%M"
+        datetime_answer = (datetime.strptime(email.get("date"), date_format))
+        time = datetime.strftime(datetime_answer, "%H:%M")
+        date =datetime.strftime(datetime_answer, "%d/%m/%Y")
+        unique_id = f"{email.get('subject', 'unknown_subject')} - {email.get("sender")} - {str(date)}"
+        # print(date)
+        collection.add(
+            documents=[email_text],
+            ids=[unique_id],  # Essential fix for the syntax error
+            metadatas=[{
+                "source": "email",
+                "date": date,
+                "time": time,
+                "sender": email.get("sender"),
+                "subject": email.get("subject")
+            }]
+        )
+    query_results = collection.query(
+        query_texts=["What's my emails this day?", "what is the most important email I have "],
+        n_results=10,
+        where={"date":"05/07/2026"}
     )
-
-collection = client.create_collection(
-    name=COLLECTION_NAME,
-    embedding_function=embedding_func,
-    metadata={"hnsw:space": "cosine"}, #"hnsw:space": "ip" for dot product but need different model
-    )
-
->>> documents = [
-...     "The latest iPhone model comes with impressive features and a powerful camera.",
-...     "Exploring the beautiful beaches and vibrant culture of Bali is a dream for many travelers.",
-...     "Einstein's theory of relativity revolutionized our understanding of space and time.",
-...     "Traditional Italian pizza is famous for its thin crust, fresh ingredients, and wood-fired ovens.",
-...     "The American Revolution had a profound impact on the birth of the United States as a nation.",
-...     "Regular exercise and a balanced diet are essential for maintaining good physical health.",
-...     "Leonardo da Vinci's Mona Lisa is considered one of the most iconic paintings in art history.",
-...     "Climate change poses a significant threat to the planet's ecosystems and biodiversity.",
-...     "Startup companies often face challenges in securing funding and scaling their operations.",
-...     "Beethoven's Symphony No. 9 is celebrated for its powerful choral finale, 'Ode to Joy.'",
-... ]
-
->>> genres = [
-...     "technology",
-...     "travel",
-...     "science",
-...     "food",
-...     "history",
-...     "fitness",
-...     "art",
-...     "climate change",
-...     "business",
-...     "music",
-... ]
-
->>> collection.add(
-...     documents=documents,
-...     ids=[f"id{i}" for i in range(len(documents))],
-...     metadatas=[{"genre": g} for g in genres]
-... )
+    # print(query_results.keys())
+    print(query_results["ids"])
+    # print(query_results["ids"])
+    print(query_results["distances"])
+    # print(query_results["metadatas"])
+    return query_results
 
 
+import re
+from rank_bm25 import BM25Okapi
 
-emails = get_emails_lang((datetime.datetime.now() - datetime.timedelta(days=31)).strftime('%Y/%m/%d'))
-new_docs = []
-
-for email in emails:
-    # 1. Skip emails that have no text content to avoid embedding errors
-    email_text = email.get("text", "").strip()
-    if not email_text:
-        continue
+class LocalBM25Search:
+    def __init__(self, documents, email_id):
+        """
+        documents format: [{"id": "email_1", "text": "hello world"}, ...]
+        """
+        self.doc_ids = email_id
+        self.raw_texts = [doc["text"] for doc in documents]
         
-    # 2. Add to collection wrapping everything in a LIST []
-    collection.add(
-        documents=[email_text],
-        ids=[email.get("subject", "unknown_subject")],  # Essential fix for the syntax error
-        metadatas=[{
-            "source": "email",
-            "date": email.get("date"),
-            "sender": email.get("sender"),
-            "subject": email.get("subject")
-        }]
-    )
+        # Build tokenized corpus
+        tokenized_corpus = [self._clean_and_tokenize(text) for text in self.raw_texts]
+        self.bm25 = BM25Okapi(tokenized_corpus)
+        
+    def _clean_and_tokenize(self, text: str) -> list[str]:
+        # Simple cleanup: lowercase and strip out weird punctuation
+        cleaned = re.sub(r'[^a-zA-Z0-9\s]', '', text.lower())
+        return cleaned.split()
 
-collection.add(
-    documents=new_docs,
-    ids=[f"id{i}" for i in range(len(new_docs))],
-    metadatas=[{"genre": g} for g in genres]
-)
+    def search(self, query: str, top_k: int = 5) -> list[str]:
+        """Returns the top_k Document IDs"""
+        tokenized_query = self._clean_and_tokenize(query)
+        
+        # Get top-scoring document IDs
+        top_ids = self.bm25.get_top_n(tokenized_query, self.doc_ids, n=top_k)
+        return top_ids
+    
+
+emails = get_emails_lang((datetime.now() - timedelta(days=14)).strftime('%Y/%m/%d'))
+date_format = "%b %d, %Y %H:%M"
+ids = [f"{email.get('subject', 'unknown_subject')} - {email.get("sender")} - {str(datetime.strftime(datetime.strptime(email.get("date"), date_format)), "%d/%m/%Y")}" for email in emails]
+bm25 = LocalBM25Search(emails, ids)

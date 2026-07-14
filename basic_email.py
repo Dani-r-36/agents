@@ -174,7 +174,8 @@ def get_emails_lang(look_back:str = None):
         dt = datetime.datetime.now() - datetime.timedelta(days=14)
 
     query = f"after:{dt.strftime('%Y/%m/%d')}"
-    results = service.users().messages().list(maxResults=100,q=query, userId='me').execute()
+    print(query)
+    results = service.users().messages().list(maxResults=1000,q=query, userId='me').execute()
     # We can also pass maxResults to get any number of emails. Like this:
     # result = service.users().messages().list(maxResults=200, userId='me').execute()
     messages = results.get('messages')
